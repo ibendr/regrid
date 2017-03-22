@@ -1,0 +1,39 @@
+"regrid" is intended to be a program that will take a list of solutions to a crossword and attempt to piece together the original grid.
+
+In general, this is type of problem does not have to have a unique solution. However, conventional professionally set crosswords will always have enough intersections to dictate a unique solution.
+
+At the very least, we are assuming a conventional approach to numbering of spots - i.e. any adjacent run of live cells must be considered a spot, spots are labelled in the usual order.
+
+In order to optimise the search, we will focus on possible points of intersection between words. Two points are worth noting here:
+
+(i) in theory, a program fulfilling our requirements could also be used to reconstruct a (blank) grid using only the lengths of the answers (useful e.g. to construct a grid from only a clue list), simply by using a notional set of solutions with all the same character. However, our approach is very much based on the assumption that our strongest hints are coming from the letters given, so it would [probably] be better to develop a different algorithm for that scenario.
+
+(ii) our procedure very much assumes a fully connected grid. It is possible to have non-connected grids whose geometry still dictates a particular layout. Again, a different approach would be needed for that scenario.
+
+We will use a coordinate system ( row , offset ) relative to head-cell 1, which we will define to be at ( 1 , 0 ). (A "head-cell" is a cell which is the head of at least one spot, and therefore is labelled with a number.) Head-cell 1 will always be the left-most live cell in the top row, so the first coordinate 'row' (vertical position or 'y') is absolute, while the second coordinate 'offset' (horizontal position or 'x') is _relative_ to head-cell 1, whose horizontal position is unknown to begin with.
+
+Prior to the recursive part of the solution search, we do some preparatory analysis....
+
+(i) make an index of occurrences of each letter in the DOWN solutions.
+	i.e. for each letter from A to Z, a list of 'places' it occurs as ( n , i ) pairs,
+	n = which down-spots (by label number) and i = position in word ( 0-based (?) )
+
+(ii) for each ACROSS solution, for each position in the word, list all the possible intersections.
+	Use index from (i) to get an initial list of candidates, and then cull according to some
+	position rules. Basically an across clue can only intersect with Down solutions...
+		
+	- with a smaller label-number, intersecting at position i > 0
+	- with immediately subsequent numbers at position i = 0
+	    e.g. 8 Across can intersect 9 Down's first letter (i.e. 9 Down's head-cell is in 8 Across),
+		and only if it does, it can intersect 10 Down's first letter at a later spot in 8 Across.
+
+(iii) use table from (ii) to build its inverse table - i.e. available intersections for Down solutions
+
+Then the recursive procedure -
+
+We start with a 'grid' consisting of 1 Across and / or 1 Down.
+
+For each positions in each word in the grid we maintain a list of possible intersections.
+We have a list of the 'live' positions - not yet intersected but with a non-empty list of intersection possibilities.
+
+Our speculative step is to choose a possible intersection and try implementing it by adding that word to the grid.
