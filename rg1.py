@@ -43,6 +43,9 @@ Our speculative step is to choose a possible intersection and try implementing i
 dirLabels = "Across:" , "Down:"
 AtoZ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 X = '='
+verb = 1
+ticks = 0
+prCount = 0
 
 def readSolnsLines( L ):
     # from lines of text, read solutions and return as pair of lists of ( n, str ) pairs
@@ -79,45 +82,63 @@ class solSet:
 	I.src = s
 	I.sols = readSolnsLines( s )
 	I.sold = map( dict , I.sols )
+	if verb > 1: print I.sold
 	lbls = set( I.sold[ 0 ].keys() + I.sold[ 1 ].keys() )
+	I.lrb = (0,1,1)
 	I.maxN = max( lbls )
 	if lbls != set( range( 1 , I.maxN + 1 ) ):
 	    # Missing spot numbers - raise alarm
 	    print "Missing spot numbers - "
 	    print set( range( 1 , I.maxN + 1 ) ) - lbls
 	I.prep( )
+	if verb > 2: print I.xsd
+	#I.search()
+
+    def search( I , maxw=15 , maxh = 15 ):
+	global ticks
+	ticks = 0
+	I.maxW = maxw # By forcing a contradiction when we spread beyond a size limit, we stop
+	I.maxH = maxh #  the search from wandering off into irrelevant territory.
+	          # If we fully exhaust search space, we can try again with a more generous limit
 	I.grid = { } # set of assignments of letter or block to coordinates, or values to other variables
 	    # coords (y,x) with y > 0 are the actual grid, y=0,x>0 are head-cell placements
 	    #  any spots with (y>=0) are assumed to be assign-once, so
 	    #		- an attempt to reassign raises contradiction
 	    #		- undoing an assignment merely means deleting
 	    # spots with y < 0 can be reassigned, and need to be restored to old value on undo.
-	#I.live = [ ] # set of coordinates of live cells in grid - i.e. where
-		# a letter is assigned (from a word in one or other direction)
-		# and for which there are still live possibilities for an intersecting word
-		# in the other direction.
-		# In fact we could have a more complex structure -
-		#  dictionary with coords as keys into lists of possible intersections (initially
-		#  taken from our earlier-prepared xsd lists)
-		# Note that each 'pssible intersection' with a word already fixed on the grid
-		# implies another quite specific head-cell assignment, easily computed.
-		# If these are included in our list, then with each new assignment of a head-cell
-		# it is easy to cull out other intersection possibilities using the same one
+	I.lives = [ ] # set of coordinates of live cells in grid - NOT auto-maintained,
+		    # call updateLives() to make it accurate
+		    # Details of live intersections for a cell (y,x) are stored at grid[ (-y,x) ]
 	I.acts = [ ] # list of grid assignments as ( y , x , v )
 	I.trys = [ ] # list of speculated assignments (as index in I.acts)
 	I.cont = [ ] # Contradictions as ( try , [ desc ] ) where try is last speculation at time of contradiction
 	I.ok = True # == (not I.cont)
-	
 	# And let's go...
-	
-	I.setV( 'live' , [] ) # we need to be able to undo actions here
-	
-	# Next version - use -y grid coordinates for live intersection lists.
-	# a coordinate has a list (possibly empty?) iff it's in exactly one word.
-	# The list itself is just ( n , z ) tuples (the z's will all have one coordinate the same)
-	
 	# "Try" putting head-cell 1 at (1,0)
-	I.tryH( 1 , (1,0) )
+	I.putH( 1 , (1,0) )
+	while I.ok:
+	    # check if we're done
+	    if I.freeHeads():
+		# if not - speculate!
+		try:
+		    I.spec()
+		except KeyboardInterrupt:
+		    break
+	    while not I.ok:
+		if verb > 2: print I.cont.pop()
+		if I.trys:
+		    # if there is at least one unforced move to undo
+		    I.ok = True
+		    I.untry()
+		    ( a , ( z , h ) ) = I.trys.pop()
+		    ntz = (-z[0],z[1])
+		    live0 = I.grid[ ntz ]
+		    if verb > 2: print live0
+		    I.setV( ntz , [ h1 for h1 in live0 if h1 != h ] )
+		    I.updateLives()
+		else:
+		    return
+
 
     def prep( I ):
 	# Make indeces of where letters A to Z occur in the solutions
@@ -149,15 +170,72 @@ class solSet:
 	for (n,t) in I.sols[ 1 ]:
 	    I.xsd[ 1 ][ n ] = [ [ (m,j) for (m,j) in I.indd[ 0 ][ c ] \
 			if (n,i) in I.xsd[ 0 ][ m ][ j ] ] for i,c in enumerate( t ) ]
+    def spec( I ):
+	# try something!
+	# list coords with non-empty lists of intersections
+	#lives = sorted( [ ( I.grid[ z ] , (-z[0],z[1]) , z ) for z in I.grid if z[0] < 0 and I.grid[ z ] ] )
+	#if not lives:
+	    #print( "no live intersections left" )
+	    #I.untry
+	if verb > 2: print I.livesz
+	sc , z , ntz = I.lives[ 0 ]
+	n , z1 = I.grid[ ntz ][ 0 ]
+	I.trys.append( ( len( I.acts ) , ( z , ( n , z1 ) ) ) )
+	I.putH( n , z1 )
     def head( I , n ):
 	# shorthand to fetch head-cell n if assigned
 	return I.grid.get( (0,n) )
+    def heads( I ):
+	return [ ( n , I.grid[ (0,n) ] ) for n in range( 1 , I.maxN + 1 ) if (0,n) in I.grid ]
+    def freeHeads( I ):
+	return [ n for n in range( 1 , I.maxN + 1 ) if not (0,n) in I.grid ]
+    def nextFreeHead( I ):
+	# lowest unassigned head-cell number, or None if all done
+	for n in range( 1 , I.maxN + 1 ):
+	    if not (0,n) in I.grid:
+		return n
+    def done( I ):
+	return not I.nextFreeHead( )
     def bust( I , desc = '?' ):
 	# 'raise' contradiction
 	I.ok = False
-	i = I.trys[ -1 ]
+	i = I.trys and I.trys[ -1 ]
 	I.cont.append( ( i , desc ) )
+	if verb > 1:
+	    I.prGrid()
+	    print "[ %s ] %s" % ( i,desc )
 	return i
+    def isBlok( I , z ):
+	return z[ 0 ] == 0 or ( z in I.grid and I.grid[ z ] == X )
+    def setBlok( I , z ):
+	if z[ 0 ]:
+	    I.setV( z , X )
+    def setNotHead( I , (y,x) ):
+	if   I.isBlok( (y-1,x) ):
+	    I.setBlok( (y+1,x) )
+	if   I.isBlok( (y,x-1) ):
+	    I.setBlok( (y,x+1) )
+    def setNotHeadSweep( I , n ):
+	# called when heads n, n+1 both assigned, to 'sweep' through
+	# any live cells in between, calling setNotHead
+	z0 = I.head( n )
+	z1 = I.head( n + 1)
+	for z in I.grid.keys():
+	    if z0 < z < z1 and I.grid[ z ] != X:
+		I.setNotHead( z )
+    def clearHead( I , n ):
+	# remove any intersection possibilities assigning head-cell n
+	#  ( or conflicting with it by ordering )
+	z = I.head( n )
+	for z2 in I.grid:
+	    if z2[ 0 ] < 0:
+		live = I.grid[ z2 ]
+		#print live
+		out = [ h2 for h2 in live if I.nzmz1( (n,z) , h2 ) ]
+		if out:
+		    rem = sorted( set( live ) - set( out ) )
+		    I.setV( z2 , rem )
+		
     def setV( I , z , v ):
 	# Set the value of a grid-cell or variable - see notes about I.grid dictionary above
 	# No action required if that value already (keeps action pile neater too)
@@ -169,6 +247,8 @@ class solSet:
 		# new grid spots or reassignable variables
 		I.acts.append( ( z , v , w ) )
 		I.grid[ z ] = v
+		if v==None:
+		    del I.grid[ z ]
 	    else:
 		return I.bust( ( "reassign" , z , v , w ) )
 
@@ -181,37 +261,46 @@ class solSet:
 	for m in range( 1 , I.maxN + 1 ):
 	    z1 = I.grid.get( (0,m) )
 	    if z1:
-		# Use natural ordering of pairs - that's why we put row first!
-		# (Although if we broke it up we could demand 
-		if ( m == n ) or ( m < n and z1 >= z ) or ( m > n and z1 <= z ):
+		## Use natural ordering of pairs - that's why we put row first!
+		## (Although if we broke it up we could demand 
+		#if ( m == n ) or ( m < n and z1 >= z ) or ( m > n and z1 <= z ):
+		if I.nzmz1( (n,z) , (m,z1) ):
 		    return (m,z1)
 	# Above could yet be quicker, assuming existing assignments consistent.
 	# We should only need to look for largest m < n and smallest m > n
-
-	
-    def tryH( I , n , z ):
+    #def nzmz1( I , *arg ):
+	#print arg
+    def nzmz1( I , (n,(y,x)) , (m,(v,u)) ):
+	return ( m == n ) or \
+	    ( m < n and ( v > y or ( v == y and u > x + n - m ) ) ) or \
+	    ( m > n and ( v < y or ( v == y and u < x - n + m ) ) )
+    def putH( I , n , z ):
+	global verb , ticks
 	# Put head-cell n at position z = (y,x)
+	ticks += 1
+	if verb:
+	    print ( "%d" + "." * len( I.trys ) + "Head %d at %s" ) % ( ticks , n , z )
 	# check for ordering issues - look at other head-cell assignments
 	mz1 = I.testH( n , z )
+	## Note if we're doing the lowest-numbered head still free
+	#nfh = ( n == I.nextFreeHead() )
+	# Assign the head-cell
+	I.setV( ( 0 , n ) , z )
+	#I.trys.append( len( I.acts ) - 1 )
 	if mz1:
 		return I.bust( ( "Head sequence:" , (n,z) , mz1 ) )
-	# Assign the head-cell
-	I.trys.append( len( I.acts ) )
-	I.setV( ( 0 , n ) , z )
-	#heads = [ ( x0 , v ) for ( ( y0 , x0 ) , v ) in I.grid.items() if y0 == 0 and x0 > 0 ]
-	#for ( m, z1 ) in heads:
-	    #if ( m < n and z1 >= z ) or ( m > n and z1 <= z ):
-		## contradiction by label-ordering rules
 	# Now assign letters of word(s), including pre- and post- block
 	for d in 0,1:
 	    e = 1-d
 	    z1 = list( z )
 	    z1[ e ] -= 1 # backup one spot for block before
+	    #print I.sold[ d ]
 	    if n in I.sold[ d ]:
 		top = d and not z1[ 0 ] # detect top of grid
 		if top:
 		    z1[ e ] += 1 # undo backing up and don't do lead block
 		s = X * ( not top ) + I.sold[ d ][ n ] + X
+		if verb > 3: print s
 		for c in s:
 		    if I.setV( tuple( z1 ) , c ):
 			return I.cont[ -1 ]
@@ -219,8 +308,8 @@ class solSet:
 		# intersection possibilities to add and subtract 
 		# subtractions are any intersection cells we have just intersected
 		# additions are a subet of all the original hypothetical intersectins of the word added
-		live = I.grid[ 'live' ]
-		newLive = dict( live ) # clone it
+		#live = I.grid[ 'live' ]
+		#newLive = dict( live ) # clone it
 		#xsAdd = []
 		#xsSub = []
 		xs = I.xsd[ d ][ n ]
@@ -228,13 +317,12 @@ class solSet:
 		for i,xl in enumerate( xs ):
 		    z1[ e ] = z[ e ] + i  # set z1 to coords of cell
 		    z1[ d ] = z[ d ] # should be unnecessary but best be safe
-		    tz1 = tuple( z1 )
+		    tz1 = ( - z1[ 0 ], z1[ 1 ] ) # how we address the live-intersection lists
 		    # if the cell was already listed with live intersections, it must've been an
 		    # already assigned cell that we just intersected, so it will now have no further
 		    # intersection possibilities - flag them for removal
-		    if tz1 in live:
-			del newLive[ tz1 ]
-			#xsSub += live[ z1 ]
+		    if tz1 in I.grid:
+			I.setV( tz1 , None )
 		    else:
 			xsAdd = [ ]
 			for (m,j) in xl:
@@ -245,9 +333,9 @@ class solSet:
 			    # and list it if that is a legal assignment
 			    if not I.testH( m , tuple( z2 ) ):
 				xsAdd.append( ( m , tuple( z2 ) ) )
-			if xsAdd:
-			    newLive[ tz1 ] = xsAdd
-		I.setV( 'live' , newLive )
+			#if xsAdd: # add even if empty - it marks being in single word
+			I.setV( tz1 , xsAdd )
+		#I.setV( 'live' , newLive )
 	    else:
 		# no word in this direction might imply block
 		#   if there's a block before, or top of grid,
@@ -259,27 +347,79 @@ class solSet:
 			( I.grid.get( tuple( z1 ) ) == X ):
 			# move to cell after and place block
 		    I.setV( z2 , X )
-		# Note - if we have text after already and X before,
-		# the above will raise the contradiction
-		## And vice-versa - safe to assume z2 on actual grid
-		#if	z2 in I.grid and ( I.grid.get( z2 ) in AtoZ:
-		    ## letter assigned to cell after, so ...
-		    #if e or z1[ 0 ]:
-			#pass
-			## for now, no way to flag being a live cell other than assigning text.
-	I.prGrid()
+	# At this point, the word is safely into the grid without clashes - if there's
+	#  a contradiction already implied, it's via impossibility of subsequent assignments.
+	# In other words, if this was the last word to go in, we're done and don't need these further checks.
+	if I.ok and I.done():
+	    if verb:
+		I.prGrid( True )
+	    return
+	# see if we've got consecutive heads assigned, in which case we may
+	# have cells that now can't be head-cells, which may in turn force some block allocations
+	if verb > 3: print I.grid
+	if I.head( n-1 ):
+	    I.setNotHeadSweep( n-1 )
+	if I.head( n+1 ):
+	    I.setNotHeadSweep( n )
+	# clear out any other live intersections with same head (even if consistent)
+	I.clearHead( n )
+	I.updateLives( )
+	if verb > 2: I.prGrid()
+    def spotScore( I , n , (y,x) ):
+	# A measure of the maximum expansion of boundaries caused by a word placement
+	l , r , b = I.lrb
+	l1 = x
+	r1 = x + ( ( n in I.sold[ 0 ] ) and len( I.sold[ 0 ][ n ] ) )
+	b1 = y + ( ( n in I.sold[ 1 ] ) and len( I.sold[ 1 ][ n ] ) )
+	out = ( max( 0 , l - l1 , r1 - r , b1 - b ) , y , n , x )
+	if verb > 4: print out
+	return out
+    def updateLrb( I ):
+	# Update left, right, bottom bounds of grid.
+	# Low values inclusive, high exclusive
+	#   i.e. x values for text-cells are range( l , r ) being [ l , ... , r-1 ]
+	zs = [ z for z in I.grid if z[ 0 ] > 0 and I.grid[ z ] in AtoZ ]
+	if zs:
+	    l = min( [ x for (y,x) in zs ] )
+	    r = max( [ x for (y,x) in zs ] ) + 1
+	    b = max( [ y for (y,x) in zs ] ) + 1
+	    I.lrb = l,r,b
+	else:
+	    I.lrb = 0,1,1
+	if verb > 2: print I.lrb
+	if ( r - l ) > I.maxW or ( b - 1 ) > I.maxH:
+	    I.bust( "Hit grid boundary L: %d , R: %d , B: %d " % I.lrb )
+    def updateLives( I ):
+	I.updateLrb( )
+	I.lives = sorted( [ ( I.spotScore( *I.grid[ z ][ 0 ] ), (-z[0],z[1]) , z ) \
+		    for z in I.grid if z[0] < 0 and I.grid[ z ] ] )
+	I.livesz = [ z for ( sc,z,nz ) in I.lives ]
+	if not I.lives:
+	    rem = len( I.freeHeads() )
+	    if not rem:
+		raise
+	    msg = "no more live intersections - %d words remain" % rem
+	    if verb: print msg
+	    I.bust( msg )
     def untry( I ):
 	# back up (after contradiction)
 	# Provision for storing the reasoning sequence leading to contradiction?
-	targ = I.trys.pop() # where we're undoing back to on the acts list
+	targ = I.trys[ -1 ][ 0 ] # where we're undoing back to on the acts list
 	while len( I.acts ) > targ:
 	    z , v , w = I.acts.pop()
-	    if w:
-		I.grid[ z ] = w
-	    else:
+	    if w == None:
 		del I.grid[ z ]
+	    else:
+		I.grid[ z ] = w
 	# eliminate the possibility that was tried? Handle elsewhere I think.
-    def prGrid( I ):
+    def prGrid( I , force=False ):
+	global prCount
+	prCount += 1
+	if not force:
+	    if prCount > 100 and ( prCount % 10 ):
+		return
+	    if prCount > 1000 and ( prCount % 100 ):
+		return
 	# Recalculate minimum & maximum x coord and max y
 	zs = [ z for z in I.grid.keys() if isinstance( z , tuple ) ]
 	xs = [ x for (y,x) in zs if y > 0 ]
@@ -290,13 +430,15 @@ class solSet:
 		print
 		for x in range( l , r + 1 ):
 		    print I.grid.get( (y,x) , '.' ),
+	I.lrb = l , r , b
 	print
 
 	
 	
 #testing
-it = solSet("sol1")
+it = solSet("sol2")
 print it.sold
 #it.prGrid()
 #print it.indd
 #print it.xsd
+go = lambda *x:it.search(*x)
