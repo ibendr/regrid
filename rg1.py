@@ -47,6 +47,15 @@ verb = 1
 ticks = 0
 prCount = 0
 
+def prn( v , m ):
+    # print message, only if verbosity >= v
+    # all screen output should come through here (if only to keep track)
+    global verb
+    if verb >= v:
+	if isinstance( m , solSet ):
+	    return m.prGrid()
+	print m
+
 def readSolnsLines( L ):
     # from lines of text, read solutions and return as pair of lists of ( n, str ) pairs
     out = ( [ ] , [ ] )
@@ -82,16 +91,16 @@ class solSet:
 	I.src = s
 	I.sols = readSolnsLines( s )
 	I.sold = map( dict , I.sols )
-	if verb > 1: print I.sold
+	prn( 1 , I.sold )
 	lbls = set( I.sold[ 0 ].keys() + I.sold[ 1 ].keys() )
 	I.lrb = (0,1,1)
 	I.maxN = max( lbls )
 	if lbls != set( range( 1 , I.maxN + 1 ) ):
 	    # Missing spot numbers - raise alarm
-	    print "Missing spot numbers - "
-	    print set( range( 1 , I.maxN + 1 ) ) - lbls
+	    prn ( 0 , "Missing spot numbers - " )
+	    prn ( 0 , set( range( 1 , I.maxN + 1 ) ) - lbls )
 	I.prep( )
-	if verb > 2: print I.xsd
+	prn( 3 , I.xsd )
 	#I.search()
 
     def search( I , maxw=15 , maxh = 15 ):
@@ -125,7 +134,7 @@ class solSet:
 		except KeyboardInterrupt:
 		    break
 	    while not I.ok:
-		if verb > 2: print I.cont.pop()
+		prn( 2 ,  I.cont.pop() )
 		if I.trys:
 		    # if there is at least one unforced move to undo
 		    I.ok = True
@@ -133,7 +142,7 @@ class solSet:
 		    ( a , ( z , h ) ) = I.trys.pop()
 		    ntz = (-z[0],z[1])
 		    live0 = I.grid[ ntz ]
-		    if verb > 2: print live0
+		    prn( 4 ,  live0 )
 		    I.setV( ntz , [ h1 for h1 in live0 if h1 != h ] )
 		    I.updateLives()
 		else:
@@ -177,7 +186,7 @@ class solSet:
 	#if not lives:
 	    #print( "no live intersections left" )
 	    #I.untry
-	if verb > 2: print I.livesz
+	prn( 2 , I.livesz )
 	sc , z , ntz = I.lives[ 0 ]
 	n , z1 = I.grid[ ntz ][ 0 ]
 	I.trys.append( ( len( I.acts ) , ( z , ( n , z1 ) ) ) )
@@ -197,13 +206,13 @@ class solSet:
     def done( I ):
 	return not I.nextFreeHead( )
     def bust( I , desc = '?' ):
+	global verb
 	# 'raise' contradiction
 	I.ok = False
 	i = I.trys and I.trys[ -1 ]
 	I.cont.append( ( i , desc ) )
-	if verb > 1:
-	    I.prGrid()
-	    print "[ %s ] %s" % ( i,desc )
+	prn( 2 , I ) # calls I.prGrid() - hopefully
+	prn( 2 , "[ %s ] %s" % ( i,desc ) )
 	return i
     def isBlok( I , z ):
 	return z[ 0 ] == 0 or ( z in I.grid and I.grid[ z ] == X )
@@ -278,8 +287,7 @@ class solSet:
 	global verb , ticks
 	# Put head-cell n at position z = (y,x)
 	ticks += 1
-	if verb:
-	    print ( "%d" + "." * len( I.trys ) + "Head %d at %s" ) % ( ticks , n , z )
+	prn ( 1 , ( "%d" + "." * len( I.trys ) + "Head %d at %s" ) % ( ticks , n , z ) )
 	# check for ordering issues - look at other head-cell assignments
 	mz1 = I.testH( n , z )
 	## Note if we're doing the lowest-numbered head still free
@@ -300,20 +308,13 @@ class solSet:
 		if top:
 		    z1[ e ] += 1 # undo backing up and don't do lead block
 		s = X * ( not top ) + I.sold[ d ][ n ] + X
-		if verb > 3: print s
+		prn( 3 , s )
 		for c in s:
 		    if I.setV( tuple( z1 ) , c ):
 			return I.cont[ -1 ]
 		    z1[ e ] += 1
 		# intersection possibilities to add and subtract 
-		# subtractions are any intersection cells we have just intersected
-		# additions are a subet of all the original hypothetical intersectins of the word added
-		#live = I.grid[ 'live' ]
-		#newLive = dict( live ) # clone it
-		#xsAdd = []
-		#xsSub = []
 		xs = I.xsd[ d ][ n ]
-		#print d , n , xs
 		for i,xl in enumerate( xs ):
 		    z1[ e ] = z[ e ] + i  # set z1 to coords of cell
 		    z1[ d ] = z[ d ] # should be unnecessary but best be safe
@@ -351,12 +352,13 @@ class solSet:
 	#  a contradiction already implied, it's via impossibility of subsequent assignments.
 	# In other words, if this was the last word to go in, we're done and don't need these further checks.
 	if I.ok and I.done():
-	    if verb:
-		I.prGrid( True )
+	    prn( 1 , I )
+	    #if verb:
+		#I.prGrid( True )
 	    return
 	# see if we've got consecutive heads assigned, in which case we may
 	# have cells that now can't be head-cells, which may in turn force some block allocations
-	if verb > 3: print I.grid
+	prn( 3 , I.grid )
 	if I.head( n-1 ):
 	    I.setNotHeadSweep( n-1 )
 	if I.head( n+1 ):
@@ -364,7 +366,7 @@ class solSet:
 	# clear out any other live intersections with same head (even if consistent)
 	I.clearHead( n )
 	I.updateLives( )
-	if verb > 2: I.prGrid()
+	prn( 2 , I )
     def spotScore( I , n , (y,x) ):
 	# A measure of the maximum expansion of boundaries caused by a word placement
 	l , r , b = I.lrb
@@ -372,7 +374,7 @@ class solSet:
 	r1 = x + ( ( n in I.sold[ 0 ] ) and len( I.sold[ 0 ][ n ] ) )
 	b1 = y + ( ( n in I.sold[ 1 ] ) and len( I.sold[ 1 ][ n ] ) )
 	out = ( max( 0 , l - l1 , r1 - r , b1 - b ) , y , n , x )
-	if verb > 4: print out
+	prn( 4 , out )
 	return out
     def updateLrb( I ):
 	# Update left, right, bottom bounds of grid.
@@ -386,7 +388,7 @@ class solSet:
 	    I.lrb = l,r,b
 	else:
 	    I.lrb = 0,1,1
-	if verb > 2: print I.lrb
+	prn( 2 , I.lrb )
 	if ( r - l ) > I.maxW or ( b - 1 ) > I.maxH:
 	    I.bust( "Hit grid boundary L: %d , R: %d , B: %d " % I.lrb )
     def updateLives( I ):
@@ -399,7 +401,7 @@ class solSet:
 	    if not rem:
 		raise
 	    msg = "no more live intersections - %d words remain" % rem
-	    if verb: print msg
+	    prn( 1 , msg )
 	    I.bust( msg )
     def untry( I ):
 	# back up (after contradiction)
