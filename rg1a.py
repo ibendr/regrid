@@ -1,4 +1,6 @@
 """
+(Ver 1a : changed presentation same search mechanism as ver 1)
+
 "regrid" is intended to be a program that will take a list of solutions to a crossword and attempt to piece together the original grid.
 
 In general, this is type of problem does not have to have a unique solution. However, conventional professionally set crosswords will always have enough intersections to dictate a unique solution.
@@ -43,9 +45,45 @@ Our speculative step is to choose a possible intersection and try implementing i
 dirLabels = "Across:" , "Down:"
 AtoZ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 X = '='
-verb = 1
+verb = 2
 ticks = 0
+tickSpace = 1	# how often (in ticks) to wait for user prompt
+def quit(*a):
+    raise Exception("User Quit")
+def prIt(*a):
+    it.prGrid( )
+def clScr(*a):
+    print "\033[2J"
+commands = {
+    'p': prIt,
+    'c': clScr,
+    'q': quit
+    }
 prCount = 0
+
+def tick():
+    global ticks, tickSpace, commands
+    ticks += 1
+    if tickSpace:
+	if not ( ticks % tickSpace ):
+	    inp = raw_input( "%4d:" % ticks )
+	    if inp:
+		# entering a number changes the frequency of stopping
+		if inp.isdigit():
+		    tickSpace = int( inp )
+		else:
+		    inpw = inp.split()
+		    if inpw:
+			if inpw[ 0 ] in commands:
+			    commands[ inpw[ 0 ] ]( inpw )
+			else:
+			    #general purpose...
+			    try:
+				exec( inp , globals() )
+			    except Exception as e:
+				print "Error: %s" % e
+			tick() #keep taking commands until none entered
+
 
 def prn( v , m ):
     # print message, only if verbosity >= v
@@ -53,7 +91,7 @@ def prn( v , m ):
     global verb
     if verb >= v:
 	if isinstance( m , solSet ):
-	    return m.prGrid( True )
+	    return m.prGrid()
 	print m
 
 def readSolnsLines( L ):
@@ -74,14 +112,14 @@ def readSolnsLines( L ):
 		while i < len( l ) and l[ i ].isdigit():
 		    n = 10 * n + int( l[ i ] )
 		    i += 1
-		s = ''.join( [ c for c in l if c.isalpha() ] )
+		s = ''.join( [ c for c in l[i:] if c.isalpha() ] )
 		#if n and len(s):
 		out[ cur ].append( ( n , s.upper() ) )
     return out
 
-def readSolnsFile( fn ):
-    # read solutions from named file
-    return readSolnsLines( file( fn ).read().splitlines() )
+#def readSolnsFile( fn ):
+    ## read solutions from named file
+    #return readSolnsLines( file( fn ).read().splitlines() )
 
 class solSet:
     def __init__( I , s ):
@@ -90,22 +128,31 @@ class solSet:
 	    s = file( s ).read().splitlines()
 	I.src = s
 	I.sols = readSolnsLines( s )
+	# do dictionary versions of the solution lists
 	I.sold = map( dict , I.sols )
 	prn( 2 , I.sold )
-	lbls = set( I.sold[ 0 ].keys() + I.sold[ 1 ].keys() )
+	I.lblsbyd = map( set , map ( dict.keys , I.sold ) )
+	I.lbls = I.lblsbyd[ 0 ].union( I.lblsbyd[ 1 ] )
+	I.dblbls = I.lblsbyd[ 0 ].intersection( I.lblsbyd[ 1 ] )
+	#I.lbls = set( I.sold[ 0 ].keys() + I.sold[ 1 ].keys() )
 	I.lrb = (0,1,1)
-	I.maxN = max( lbls )
-	if lbls != set( range( 1 , I.maxN + 1 ) ):
+	I.maxN = max( I.lbls )
+	if I.lbls != set( range( 1 , I.maxN + 1 ) ):
 	    # Missing spot numbers - raise alarm
 	    prn ( 0 , "Missing spot numbers - " )
-	    prn ( 0 , set( range( 1 , I.maxN + 1 ) ) - lbls )
+	    prn ( 0 , set( range( 1 , I.maxN + 1 ) ) - I.lbls )
+	# check for mismatched first letters
+	for n in I.dblbls:
+	    if I.sold[ 0 ][ n ][ 0 ] != I.sold[ 1 ][ n ][ 0 ]:
+		prn( 0 , "FATAL: mismatched clues - " )
+		prn( 0 , "%d: %s , %s" )
+		I.ok = False
+		return
 	I.prep( )
-	prn( 3 , I.xsd )
+	prn( 4 , I.xsd )
 	#I.search()
 
     def search( I , maxw=15 , maxh = 15 ):
-	global ticks
-	ticks = 0
 	I.maxW = maxw # By forcing a contradiction when we spread beyond a size limit, we stop
 	I.maxH = maxh #  the search from wandering off into irrelevant territory.
 	          # If we fully exhaust search space, we can try again with a more generous limit
@@ -133,10 +180,10 @@ class solSet:
 		    I.spec()
 		except KeyboardInterrupt:
 		    break
-	    else:
-		return
+		if I.done():
+		    return
 	    while not I.ok:
-		prn( 2 ,  I.cont.pop() )
+		prn( 3 ,  I.cont.pop() )
 		if I.trys:
 		    # if there is at least one unforced move to undo
 		    I.ok = True
@@ -144,7 +191,7 @@ class solSet:
 		    ( a , ( z , h ) ) = I.trys.pop()
 		    ntz = (-z[0],z[1])
 		    live0 = I.grid[ ntz ]
-		    prn( 4 ,  live0 )
+		    prn( 5 ,  live0 )
 		    I.setV( ntz , [ h1 for h1 in live0 if h1 != h ] )
 		    I.updateLives()
 		else:
@@ -188,7 +235,7 @@ class solSet:
 	#if not lives:
 	    #print( "no live intersections left" )
 	    #I.untry
-	prn( 2 , I.livesz )
+	prn( 3 , I.livesz )
 	sc , z , ntz = I.lives[ 0 ]
 	n , z1 = I.grid[ ntz ][ 0 ]
 	I.trys.append( ( len( I.acts ) , ( z , ( n , z1 ) ) ) )
@@ -213,8 +260,8 @@ class solSet:
 	I.ok = False
 	i = I.trys and I.trys[ -1 ]
 	I.cont.append( ( i , desc ) )
-	prn( 2 , I ) # calls I.prGrid() - hopefully
-	prn( 2 , "[ %s ] %s" % ( i,desc ) )
+	prn( 3 , I ) # calls I.prGrid() - hopefully
+	prn( 3 , "[ %s ] %s" % ( i,desc ) )
 	return i
     def isBlok( I , z ):
 	return z[ 0 ] == 0 or ( z in I.grid and I.grid[ z ] == X )
@@ -289,7 +336,6 @@ class solSet:
     def putH( I , n , z ):
 	global verb , ticks
 	# Put head-cell n at position z = (y,x)
-	ticks += 1
 	prn ( 2 , ( "%d " + "." * len( I.trys ) + "Head %d at %s" ) % ( ticks , n , z ) )
 	# check for ordering issues - look at other head-cell assignments
 	mz1 = I.testH( n , z )
@@ -369,6 +415,7 @@ class solSet:
 	I.clearHead( n )
 	I.updateLives( )
 	prn( 1 , I )
+	tick()
     def spotScore( I , n , (y,x) ):
 	# A measure of the maximum expansion of boundaries caused by a word placement
 	l , r , b = I.lrb
@@ -390,7 +437,7 @@ class solSet:
 	    I.lrb = l,r,b
 	else:
 	    I.lrb = 0,1,1
-	prn( 2 , I.lrb )
+	prn( 3 , I.lrb )
 	if ( r - l ) > I.maxW or ( b - 1 ) > I.maxH:
 	    I.bust( "Hit grid boundary L: %d , R: %d , B: %d " % I.lrb )
     def updateLives( I ):
@@ -416,7 +463,7 @@ class solSet:
 	    else:
 		I.grid[ z ] = w
 	# eliminate the possibility that was tried? Handle elsewhere I think.
-    def prGrid( I , force=False , moveCursor=True ):
+    def prGrid( I , force=True ):
 	global prCount
 	prCount += 1
 	if not force:
@@ -428,15 +475,15 @@ class solSet:
 	zs = [ z for z in I.grid.keys() if isinstance( z , tuple ) ]
 	xs = [ x for (y,x) in zs if y > 0 ]
 	if xs:
+	    print "\033[0;0H"
 	    l , r = min( xs ) , max( xs )
 	    b = max( [ y for (y,x) in zs ] )
 	    for y in range( 1 , b + 1 ):
 		for x in range( l , r + 1 ):
 		    print I.grid.get( (y,x) , '.' ),
 		print
-	    if moveCursor:
-		print "\033[%dA" % ( b + 1 )
-	I.lrb = l , r , b
+	#I.lrb = l , r , b
+	print
 
 	
 	
