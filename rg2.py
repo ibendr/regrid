@@ -9,6 +9,11 @@ Version 1 focused on possible points of intersection between words, so starting 
 
 Version 2, which hopefully will adapt better to blank solutions (i.e. lengths only), will instead work from the top-left corner of the grid across in rows, trying assignments for each cell. This way, head cells will be assigned in order.
 
+TODO:
+	- backtracking after solution (if we want to find more)
+	- option to enforce rotational symmetry
+	- fasterise
+
 The possibilities for each cell will be:
 	- undetermined
 	- blocked
@@ -39,7 +44,7 @@ Backing up after contradiction:
 	undo all changes since last posit
 	if last posit was making cell live, now it's a block (forced)
 	if last posit was making live cell a head-cell, make it plain live (forced)...
-		consequently for each direction of head-cell make next cell as block
+		consequently for each direction of head-cell make next cell a block
 		if this is both directions, then this is a lone cell -> contradiction
 
 Whereas ver 1 used coordinates ( row , offset ) relative to head-cell 1, ver 2 will be absolute to grid. Note first live cell must be a head-cell
@@ -79,6 +84,7 @@ dirs = 0,1
 dirLabels = "Down:" , "Across:"
 AtoZ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 X = '='
+it = None
 verb = 2
 ticks = 0
 tickSpace = 1	# how often (in ticks) to wait for user prompt
@@ -151,7 +157,7 @@ def prn( v , m ):
 	    #return m.prGrid()
 	print m
 
-def readSolnsLines( L ):
+def readSolnsLines( L , allOneChar = None ):
     # from lines of text, read solutions and return as pair of lists of ( n, str ) pairs
     out = ( [ ] , [ ] )
     cur = -1
@@ -170,17 +176,21 @@ def readSolnsLines( L ):
 		    n = 10 * n + int( l[ i ] )
 		    i += 1
 		s = ''.join( [ c for c in l[i:] if c.isalpha() ] )
-		#if n and len(s):
-		out[ cur ].append( ( n , s.upper() ) )
+		if n and s:
+			if allOneChar:
+				s = len( s ) * allOneChar
+			else:
+				s = s.upper()
+			out[ cur ].append( ( n , s ) )
     return out
 
 class solSet:
-    def __init__( I , s ):
+    def __init__( I , s , allOneChar = None ):
 	# Initialise with list of lines or filename
 	if isinstance( s , str ):
 	    s = file( s ).read().splitlines()
 	I.src = s
-	I.sols = readSolnsLines( s )
+	I.sols = readSolnsLines( s , allOneChar )
 	# do dictionary versions of the solution lists
 	I.sold = map( dict , I.sols )
 	prn( 2 , I.sold )
@@ -211,15 +221,15 @@ class solSet:
 	I.heads 	= maxm * [ None ]
 	I.headLens 	= maxm * [ None ]
 	I.headMaxLen	= maxm * [ None ]
-	I.headTotLen	= maxm * [ None ] # total characters left in first direction (Across) clues
-	I.totLen = 0  # total of lengths in first direction
 	I.maxLen = 0  # maximum length in final direction (i.e. Down), == I.headLenMax[ 1 ]
+	#I.headTotLen	= maxm * [ None ] # total characters left in first direction (Across) clues
+	#I.totLen = 0  # total of lengths in first direction
 	for n in I.lblR[ :: -1 ]:
 	    dic = dict( [ ( d , I.sold[ d ][ n ] + X ) for d in dirs if n in I.sold[ d ] ] )
 	    I.heads[ n ] = dic
 	    I.headLens[ n ] = [ len( dic.get( d , " " ) ) - 1 for d in dirs ]
 	    I.headMaxLen[ n ] = I.maxLen = max( ( I.maxLen , I.headLens[ n ][ 0 ] ) )
-	    I.headTotLen[ n ] = I.totLen = I.totLen + I.headLens[ n ][ -1 ]
+	    #I.headTotLen[ n ] = I.totLen = I.totLen + I.headLens[ n ][ -1 ]
 	#I.prep( )
 	#I.search()
     def prep( I , *sizes ):
@@ -233,10 +243,11 @@ class solSet:
 		'nextHead'   : I.heads[ 1 ] , 	#  ... and content ( dictionary { d : word } )
 		'nextHeadLs' : I.headLens[ 1 ] , # length (or 0) of word in each direction
 		'maxLenLeft' : I.maxLen ,	# maximum remaining length of final direction (Down) answers
-		'totLenLeft' : I.totLen ,		# total remaining length of first direction (Across) answers
+		#'totLenLeft' : I.totLen ,		# total remaining length of first direction (Across) answers
 		'curCell'    : [ 1 for d in dirs ] , # current cell to consider
 		#'blocks'     : 0 ,		# count of blocked cells
-		'cellsLeft'  : I.totCells
+		#'cellsLeft'  : I.totCells ,
+		'x' : 0
 		})
 	g.curCell[ - 1 ] = 0
 	# Set boundaries - a bit inefficient but it's a one-off
@@ -271,12 +282,13 @@ class solSet:
 	    else:
 		# shouldn't get to here!
 		raise OutOfSpace
-	g.cellsLeft -= 1
-	if g.cellsLeft < g.totLenLeft:
-	    I.report()
-	    print g.cellsLeft , g.totLenLeft
-	    tick( True )
-	    raise OutOfSpace( dirLabels[ 1 ] )
+	## extra check for running out os space - rarely applied
+	#g.cellsLeft -= 1
+	#if g.cellsLeft < g.totLenLeft:
+	    #I.report()
+	    #print g.cellsLeft , g.totLenLeft
+	    #tick( True )
+	    #raise OutOfSpace( dirLabels[ 1 ] )
 	g.curCell = cell # new assignment so tracked
 	#print cell[ 0 ] , g.maxLens , g.sizes[ 0 ]
 	if cell[ 0 ] + g.maxLenLeft > g.sizes[ 0 ] + 1:
@@ -400,12 +412,12 @@ class solSet:
 	    g.nextHead = I.heads[ n ]
 	    g.nextHeadLs = I.headLens[ n ]
 	    g.maxLenLeft = I.headMaxLen[ n ]
-	    g.totLenLeft = I.headTotLen[ n ]
+	    #g.totLenLeft = I.headTotLen[ n ]
 	else:
 	    g.nextHead = { 1: X }
 	    g.nextHeadLs = [ 0 , 1 ]
 	    g.maxLenLeft = 0
-	    g.totLenLeft = 0
+	    #g.totLenLeft = 0
 	I.report()
     def report( I , force=True ):
 	global prCount
@@ -426,10 +438,12 @@ class solSet:
 	
 fout = "test-out"
 #testing
-it = solSet("sol2")
-print it.sold
+def go (y=15,x=15,allOneChar=None,fin="sol2"):
+	global it;
+	it = solSet(fin,allOneChar)
+	print it.sold
+	it.search(y,x)
 #it.prGrid()
 #print it.indd
 #print it.xsd
-go = lambda y=15,x=15:it.search(y,x)
-go()
+#go()

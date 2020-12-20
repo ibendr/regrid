@@ -9,6 +9,7 @@ class model(dict):
     Some properties can also be tracked, but reassignment is OK for them.
     The 'acts' are tuples ( name , value , oldValue ) for properties and just ( key , value ) for values.
     None is reserved as value returned for unassigned keys, so shouldn't be one of the possible values.
+    done: move tracked properties to being fields (means no name clash allowed) simplifying acts TODO: test it!
     """
     def __init__( I , tracked , autoUntry = False ):
 	"""tracked is either -
@@ -20,22 +21,27 @@ class model(dict):
 	if isinstance( tracked , dict ):
 	    for nam in tracked:
 		dict.__setattr__( I , nam , tracked[ nam ] )
-	    I.tracked = tracked.keys()
+	    I.__dict__['tracked'] = tracked.keys()
 	else:
 	    I.tracked = tracked
 	I.acts = []
 	I.trys = []
 	I.auto = autoUntry
-    def __getattr__( I , nam ):
-	if nam in I.__dict__:
-	    return I.__dict__[ nam ]
+    #def __getattr__( I , nam ):
+	#if nam in I.__dict__['tracked']:
+	##if nam=='tracked' or nam in I.tracked:
+	    #return dict.__getitem__( I , nam )
+	#if nam in I.__dict__:
+	    #return I.__dict__[ nam ]
     def __setattr__( I , nam , val ):
-	old = I.__getattr__( nam )
+	old = I.__dict__.get( nam )
 	# do nothing if new value same as old
 	if old != val:
 	    dict.__setattr__( I , nam , val )
 	    if nam in I.tracked:
-		I.acts.append( ( nam , val , old ) )
+		#dict.__setitem__( I , nam , val )
+		I.acts.append( ( nam , val , old , True ) )
+		I.onChange( nam , val , old , True )
     def __missing__( I , key ):
 	# Unassigned keys return None instead of raising Key Error
 	pass
@@ -57,7 +63,8 @@ class model(dict):
 	if old != val:
 	    if old == None:
 		dict.__setitem__( I , key , val )
-		I.acts.append( ( key , val ) )
+		I.acts.append( ( key , val , old ) )
+		I.onChange( key , val , old , False )
 	    else:
 		if I.auto:
 		    I.untry()
@@ -72,8 +79,15 @@ class model(dict):
 		I.unact( * I.acts.pop( ) )
 	else:
 	    raise Contradiction
-    def unact( I , nam , val , old = None ):
-	if old:
-	    dict.__setattr__( I , nam , old )
+    def unact( I , key , val , old, attr = False ):
+	if attr:
+	    dict.__setattr__( I , key, old )
 	else:
-	    del I[ nam ]
+	    if old == None:
+		del I[ key ]
+	    else:
+		dict.__setitem__( I , key , old )
+	I.onChange( key , val , old , attr , True )
+    def onChange( I , key , val , old , attr=False , rev=False ):
+	# for subclasses to override to respond to changes to data
+	pass
